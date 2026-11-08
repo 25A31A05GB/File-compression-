@@ -198,7 +198,7 @@ public:
 int main() {
     std::cout << "========================================\n";
     std::cout << "       HUFFMAN TEXT COMPRESSION\n";
-    std::cout << "          Portable C++11 Demo\n";
+    std::cout << "       
     std::cout << "========================================\n";
     std::cout << "Enter a line of text to compress:\n> ";
 
