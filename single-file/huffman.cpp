@@ -1,21 +1,5 @@
 /*
- * Huffman File Compression - Single File Edition
- * C++17
- *
- * Build:
- *   g++ -std=c++17 -O2 -Wall -Wextra -pedantic huffman.cpp -o huffman
- *
- * Compress:
- *   ./huffman compress input.txt output.huff
- *
- * Decompress:
- *   ./huffman decompress output.huff restored.txt
- *
- * Windows (MinGW):
- *   g++ -std=c++17 -O2 -Wall -Wextra -pedantic huffman.cpp -o huffman.exe
- *   .\huffman.exe compress input.txt output.huff
- *   .\huffman.exe decompress output.huff restored.txt
- *
+ * Huffman File Compression - 
  * This single-file edition combines the project's modular implementation.
  */
 
@@ -34,10 +18,10 @@
 #include <utility>
 #include <vector>
 
-// -----------------------------------------------------------------------------
+
 // 1. HUFFMAN NODE
 // A leaf stores one byte and its frequency. Internal nodes join two children.
-// -----------------------------------------------------------------------------
+
 
 struct HuffmanNode {
     std::uint8_t byte;
@@ -73,10 +57,9 @@ struct HuffmanNode {
     }
 };
 
-// -----------------------------------------------------------------------------
+
 // 2. HUFFMAN TREE
 // A min-priority queue repeatedly combines the two least-frequent nodes.
-// -----------------------------------------------------------------------------
 
 class HuffmanTree {
 public:
@@ -156,10 +139,9 @@ private:
     }
 };
 
-// -----------------------------------------------------------------------------
 // 3. FILE HANDLER
 // Binary mode lets the program handle text, images, PDFs, and other byte data.
-// -----------------------------------------------------------------------------
+
 
 class FileHandler {
 public:
@@ -216,9 +198,8 @@ public:
     }
 };
 
-// -----------------------------------------------------------------------------
 // 4. COMPRESSION STATISTICS
-// -----------------------------------------------------------------------------
+
 
 class Statistics {
 public:
@@ -247,11 +228,9 @@ public:
     }
 };
 
-// -----------------------------------------------------------------------------
 // 5. COMPRESSOR
-// The HUF1 header stores the original size and 256 frequencies. Encoded bits
-// are packed into bytes, most-significant bit first.
-// -----------------------------------------------------------------------------
+// The HUF1 header stores the original size and 256 frequencies. Encoded bits are packed into bytes, most-significant bit first.
+
 
 class Compressor {
 private:
@@ -339,11 +318,9 @@ public:
     }
 };
 
-// -----------------------------------------------------------------------------
+
 // 6. DECOMPRESSOR
-// It reads the header, rebuilds the same tree, follows each encoded bit, and
-// writes the original bytes back to a file.
-// -----------------------------------------------------------------------------
+// It reads the header, rebuilds the same tree, follows each encoded bit, and writes the original bytes back to a file.
 
 class Decompressor {
 private:
@@ -477,9 +454,6 @@ public:
     }
 };
 
-// -----------------------------------------------------------------------------
-// 7. MAIN
-// -----------------------------------------------------------------------------
 
 void printUsage(const char* program) {
     std::cout << "Huffman File Compression (C++17) - Single File Edition\n\n"
