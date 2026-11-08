@@ -8,3 +8,10 @@ __pycache__/
 .DS_Store
 .vscode/
 .idea/
+
+# Generated build and local test outputs
+/build/
+/single-file/huffman
+/single-file/huffman.exe
+*.huff
+restored.txt

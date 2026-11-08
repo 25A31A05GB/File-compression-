@@ -1,117 +1,147 @@
-# Huffman File Compression
+# Huffman File Compression (C++17)
 
-This is my ADSAA project. I am using C++ to make a small file compression program with Huffman Coding.
+A lossless file-compression learning project using Huffman Coding. The project
+contains **two equivalent ways to study and run the implementation**:
 
-The program can compress a file and decompress it again. Huffman Coding is a lossless method, so the restored file should have the same data as the original file.
+1. **Modular version (repository root):** separate `.cpp` implementation files
+   and `.h` headers, organized by responsibility.
+2. **Single-file version (`single-file/huffman.cpp`):** the complete program
+   combined into one C++ source file for easier reading, compiling, and sharing.
 
-## What the program does
+The original modular source files from the supplied project are preserved.
+The single-file edition combines their behavior in one standalone source file.
 
-- Counts how many times each byte appears in a file.
-- Builds a Huffman Tree from those counts.
-- Gives a binary code to each byte.
-- Saves the encoded data in a `.huff` file.
-- Reads the `.huff` file and restores the original file.
-- Shows the original and compressed file sizes.
+## Features
 
-It can work with text files and binary files such as images and PDFs.
-
-## What is Huffman Coding?
-
-Huffman Coding is a compression method. It gives shorter codes to values that appear more often and longer codes to values that appear less often.
-
-It uses the Greedy Method. At each step, it joins the two nodes that have the smallest frequencies.
+- Counts byte frequencies (all 256 possible byte values).
+- Builds a Huffman tree using a min-priority queue.
+- Assigns shorter codes to more frequent bytes.
+- Packs encoded bits into bytes.
+- Stores a `HUF1` header and frequency table.
+- Rebuilds the tree to decompress the file.
+- Reports original size, compressed size, and space saved.
+- Reads and writes in binary mode, so it can process text and binary files.
 
 ## Requirements
 
-- C++ compiler with C++17 support
-- CMake 3.16 or newer
+- C++17 compiler
+- CMake 3.16+ for the modular version
+- Or a direct C++ compiler command for the single-file version
 
-## Build the project
+## Option A: Build the modular version
 
-Open a terminal in this folder.
+Run these commands from the repository root:
 
 ```bash
 cmake -S . -B build
 cmake --build build
 ```
 
-## Run the program
-
-To compress a file:
+Compress:
 
 ```bash
-huffman compress examples/input.txt output.huff
+./build/huffman compress examples/input.txt output.huff
 ```
 
-To get the original file back:
+Decompress:
 
 ```bash
-huffman decompress output.huff restored.txt
+./build/huffman decompress output.huff restored.txt
 ```
 
-On Windows, the program may be inside `build/Release`. For example:
+On Windows, the executable may be in `build/Debug` or `build/Release`:
 
 ```powershell
-.\build\Release\huffman.exe compress examples\input.txt output.huff
-.\build\Release\huffman.exe decompress output.huff restored.txt
+.\build\Debug\huffman.exe compress examples\input.txt output.huff
+.\build\Debug\huffman.exe decompress output.huff restored.txt
 ```
 
-## Check the result
+## Option B: Build the single-file version
 
-Compare the original file and the restored file. They should be the same.
+Change to the single-file folder:
 
-On Windows PowerShell:
+```bash
+cd single-file
+g++ -std=c++17 -O2 -Wall -Wextra -pedantic huffman.cpp -o huffman
+```
+
+Compress and decompress the sample:
+
+```bash
+./huffman compress ../examples/input.txt compressed.huff
+./huffman decompress compressed.huff restored.txt
+```
+
+On Windows with MinGW:
 
 ```powershell
-Get-FileHash examples\input.txt
-Get-FileHash restored.txt
+g++ -std=c++17 -O2 -Wall -Wextra -pedantic huffman.cpp -o huffman.exe
+.\huffman.exe compress ..\examples\input.txt compressed.huff
+.\huffman.exe decompress compressed.huff restored.txt
 ```
 
-On Linux or macOS:
+## Verify lossless restoration
+
+From the repository root, for the modular version:
 
 ```bash
 cmp examples/input.txt restored.txt
 ```
 
-## Folder details
+For the single-file version, compare `examples/input.txt` with
+`single-file/restored.txt` if you used that output path, or run `cmp` from
+inside `single-file`:
 
-- `include` has the header files.
-- `src` has the C++ program files.
-- `examples` has sample input files.
-- `tests` has a small test script.
-- `docs` has notes about the algorithm.
-- `output` is for files created while trying the program.
+```bash
+cmp ../examples/input.txt restored.txt
+```
 
-## Main steps of Huffman Coding
+No output from `cmp` means the files match.
 
-1. Count the frequency of each byte.
-2. Put the bytes into a min-priority queue.
-3. Take out the two nodes with the smallest frequencies.
-4. Join them under a new node.
-5. Put the new node back into the queue.
-6. Repeat until one node is left.
-7. Use left for `0` and right for `1` to make the codes.
+## Repository layout
 
-## Complexity
+```text
+.
+├── include/                 # Header declarations and HuffmanNode
+├── src/                     # Modular C++ implementation
+├── single-file/
+│   ├── huffman.cpp           # Complete combined implementation
+│   └── README.md             # Single-file build/run guide
+├── docs/                     # Algorithm and beginner documentation
+├── examples/                 # Sample input files
+├── tests/                    # Round-trip test
+├── output/                   # Place for generated files
+├── CMakeLists.txt
+├── LICENSE
+└── README.md
+```
 
-Here, `N` is the number of bytes in the file and `K` is the number of different byte values.
+## Documentation
 
-| Operation | Time |
-|---|---|
-| Count frequencies | O(N) |
-| Build the tree | O(K log K) |
-| Make the codes | O(K) |
-| Encode the file | O(N + number of encoded bits) |
-| Decode the file | O(number of encoded bits) |
+- `docs/01_huffman_coding.md` through `docs/11_build_and_run.md` — topic notes
+  supplied with the project.
+- `docs/CODE_WALKTHROUGH.md` — explanations of the important code sections.
+- `single-file/README.md` — exact single-file compilation and run instructions.
 
-There can be at most 256 different byte values.
+## How the algorithm works
 
-## Note
+1. Read the input bytes and count each byte's frequency.
+2. Insert each used byte into a min-priority queue.
+3. Repeatedly remove the two least-frequent nodes and join them.
+4. Traverse the final tree to assign `0` and `1` codes.
+5. Encode the input and pack the bits into output bytes.
+6. During decompression, rebuild the tree from the stored frequency table.
+7. Decode until the recorded original byte count is restored.
 
-The compressed file stores a frequency table so that the tree can be built again during decompression. This table takes space. Because of that, a small file may become bigger after compression.
+## Notes and limitations
 
-This is a learning project and the `.huff` format is made for this project. It is not the same as ZIP.
+- This is a project-specific `HUF1` format; it is not a ZIP-compatible format.
+- The header stores a 64-bit original size and 256 64-bit frequency values.
+  Header overhead means very small files can become larger after compression.
+- The program loads file data into memory, so available memory limits the
+  practical input size.
+- Keep generated `build/` files out of Git; they are created by CMake.
 
 ## License
 
-MIT License. See the `LICENSE` file.
+MIT. See `LICENSE`.
