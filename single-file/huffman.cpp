@@ -1,25 +1,32 @@
+/*
+ * Huffman File Compression and Decompression
+ */
+
 #include <iostream>
-#include <string>
+#include <fstream>
 #include <vector>
 #include <array>
 #include <queue>
-#include <iomanip>
-#include <stdexcept>
+#include <string>
 #include <cstdint>
+#include <limits>
+#include <stdexcept>
+#include <iomanip>
+#include <sstream>
 
-struct Node {
+struct HuffmanNode {
     unsigned char symbol;
     std::uint64_t frequency;
     int minSymbol;
     std::uint64_t order;
-    Node* left;
-    Node* right;
+    HuffmanNode* left;
+    HuffmanNode* right;
 
-    Node(unsigned char ch, std::uint64_t count, std::uint64_t seq)
+    HuffmanNode(unsigned char ch, std::uint64_t count, std::uint64_t seq)
         : symbol(ch), frequency(count), minSymbol(ch), order(seq),
           left(NULL), right(NULL) {}
 
-    Node(Node* a, Node* b, std::uint64_t seq)
+    HuffmanNode(HuffmanNode* a, HuffmanNode* b, std::uint64_t seq)
         : symbol(0), frequency(a->frequency + b->frequency),
           minSymbol(a->minSymbol < b->minSymbol ? a->minSymbol : b->minSymbol),
           order(seq), left(a), right(b) {}
@@ -27,8 +34,8 @@ struct Node {
     bool isLeaf() const { return left == NULL && right == NULL; }
 };
 
-struct CompareNodes {
-    bool operator()(const Node* a, const Node* b) const {
+struct NodeCompare {
+    bool operator()(const HuffmanNode* a, const HuffmanNode* b) const {
         if (a->frequency != b->frequency)
             return a->frequency > b->frequency;
         if (a->minSymbol != b->minSymbol)
@@ -37,235 +44,388 @@ struct CompareNodes {
     }
 };
 
-struct EncodedData {
-    std::array<std::uint64_t, 256> frequencies;
-    std::vector<unsigned char> bytes;
-    std::size_t bitCount;
-    std::size_t originalSize;
-
-    EncodedData() : bitCount(0), originalSize(0) {
-        frequencies.fill(0);
-    }
-};
-
-class HuffmanCompressor {
+class HuffmanTree {
 private:
-    std::vector<Node*> allocated;
+    std::vector<HuffmanNode*> nodes;
+    HuffmanNode* root;
 
-    Node* makeNode(unsigned char ch, std::uint64_t count, std::uint64_t order) {
-        Node* n = new Node(ch, count, order);
-        allocated.push_back(n);
-        return n;
+    HuffmanNode* makeLeaf(unsigned char symbol, std::uint64_t frequency,
+                          std::uint64_t order) {
+        HuffmanNode* node = new HuffmanNode(symbol, frequency, order);
+        nodes.push_back(node);
+        return node;
     }
 
-    Node* makeParent(Node* a, Node* b, std::uint64_t order) {
-        Node* n = new Node(a, b, order);
-        allocated.push_back(n);
-        return n;
+    HuffmanNode* makeParent(HuffmanNode* left, HuffmanNode* right,
+                            std::uint64_t order) {
+        HuffmanNode* node = new HuffmanNode(left, right, order);
+        nodes.push_back(node);
+        return node;
     }
 
-    Node* buildTree(const std::array<std::uint64_t, 256>& frequencies) {
-        std::priority_queue<Node*, std::vector<Node*>, CompareNodes> heap;
-        std::uint64_t order = 0;
-
-        for (int i = 0; i < 256; ++i) {
-            if (frequencies[i] != 0) {
-                heap.push(makeNode(static_cast<unsigned char>(i),
-                                   frequencies[i], order++));
-            }
-        }
-
-        while (heap.size() > 1) {
-            Node* first = heap.top();
-            heap.pop();
-            Node* second = heap.top();
-            heap.pop();
-            heap.push(makeParent(first, second, order++));
-        }
-
-        return heap.empty() ? NULL : heap.top();
-    }
-
-    void makeCodes(Node* node, const std::string& prefix,
-                   std::array<std::string, 256>& codes) {
+    void buildCodes(HuffmanNode* node, const std::string& prefix,
+                    std::array<std::string, 256>& codes) const {
         if (node == NULL) return;
-
         if (node->isLeaf()) {
             codes[node->symbol] = prefix.empty() ? "0" : prefix;
             return;
         }
-
-        makeCodes(node->left, prefix + "0", codes);
-        makeCodes(node->right, prefix + "1", codes);
-    }
-
-    void releaseTree() {
-        for (std::size_t i = 0; i < allocated.size(); ++i)
-            delete allocated[i];
-        allocated.clear();
+        buildCodes(node->left, prefix + "0", codes);
+        buildCodes(node->right, prefix + "1", codes);
     }
 
 public:
-    ~HuffmanCompressor() { releaseTree(); }
+    HuffmanTree() : root(NULL) {}
 
-    EncodedData compress(const std::string& input,
-                         std::array<std::string, 256>& codes) {
-        releaseTree();
+    ~HuffmanTree() {
+        clear();
+    }
 
-        EncodedData result;
-        result.originalSize = input.size();
+    void clear() {
+        for (std::size_t i = 0; i < nodes.size(); ++i)
+            delete nodes[i];
+        nodes.clear();
+        root = NULL;
+    }
 
-        for (std::size_t i = 0; i < input.size(); ++i) {
-            unsigned char ch = static_cast<unsigned char>(input[i]);
-            ++result.frequencies[ch];
+    HuffmanNode* build(const std::array<std::uint64_t, 256>& frequencies) {
+        clear();
+        std::priority_queue<HuffmanNode*, std::vector<HuffmanNode*>,
+                            NodeCompare> heap;
+        std::uint64_t order = 0;
+
+        for (int i = 0; i < 256; ++i) {
+            if (frequencies[i] != 0)
+                heap.push(makeLeaf(static_cast<unsigned char>(i),
+                                   frequencies[i], order++));
         }
 
-        Node* root = buildTree(result.frequencies);
+        while (heap.size() > 1) {
+            HuffmanNode* first = heap.top(); heap.pop();
+            HuffmanNode* second = heap.top(); heap.pop();
+            if (first->frequency >
+                std::numeric_limits<std::uint64_t>::max() - second->frequency)
+                throw std::runtime_error("Frequency total overflow.");
+            heap.push(makeParent(first, second, order++));
+        }
+
+        root = heap.empty() ? NULL : heap.top();
+        return root;
+    }
+
+    void getCodes(std::array<std::string, 256>& codes) const {
         codes.fill("");
+        buildCodes(root, "", codes);
+    }
 
-        if (root == NULL) return result;
+    HuffmanNode* getRoot() const { return root; }
+};
 
-        makeCodes(root, "", codes);
+static void writeU16(std::ostream& out, std::uint16_t value) {
+    out.put(static_cast<char>(value & 0xFF));
+    out.put(static_cast<char>((value >> 8) & 0xFF));
+    if (!out) throw std::runtime_error("Failed writing compressed header.");
+}
 
-        unsigned char currentByte = 0;
-        int bitsInCurrentByte = 0;
+static void writeU64(std::ostream& out, std::uint64_t value) {
+    for (int i = 0; i < 8; ++i)
+        out.put(static_cast<char>((value >> (8 * i)) & 0xFF));
+    if (!out) throw std::runtime_error("Failed writing compressed header.");
+}
 
-        for (std::size_t i = 0; i < input.size(); ++i) {
-            unsigned char ch = static_cast<unsigned char>(input[i]);
-            const std::string& code = codes[ch];
+static std::uint16_t readU16(std::istream& in) {
+    int a = in.get(), b = in.get();
+    if (a == EOF || b == EOF)
+        throw std::runtime_error("Compressed header is incomplete.");
+    return static_cast<std::uint16_t>(
+        static_cast<unsigned int>(static_cast<unsigned char>(a)) |
+        (static_cast<unsigned int>(static_cast<unsigned char>(b)) << 8));
+}
 
-            for (std::size_t j = 0; j < code.size(); ++j) {
-                currentByte = static_cast<unsigned char>(
-                    (currentByte << 1) | (code[j] == '1' ? 1 : 0));
-                ++bitsInCurrentByte;
-                ++result.bitCount;
+static std::uint64_t readU64(std::istream& in) {
+    std::uint64_t value = 0;
+    for (int i = 0; i < 8; ++i) {
+        int ch = in.get();
+        if (ch == EOF)
+            throw std::runtime_error("Compressed header is incomplete.");
+        value |= static_cast<std::uint64_t>(
+            static_cast<unsigned char>(ch)) << (8 * i);
+    }
+    return value;
+}
 
-                if (bitsInCurrentByte == 8) {
-                    result.bytes.push_back(currentByte);
-                    currentByte = 0;
-                    bitsInCurrentByte = 0;
+static std::uint64_t getFileSize(const std::string& path) {
+    std::ifstream in(path.c_str(), std::ios::binary | std::ios::ate);
+    if (!in) throw std::runtime_error("Cannot open file: " + path);
+    std::streamoff size = in.tellg();
+    if (size < 0) throw std::runtime_error("Cannot determine file size.");
+    return static_cast<std::uint64_t>(size);
+}
+
+static std::vector<unsigned char> readFile(const std::string& path) {
+    std::ifstream in(path.c_str(), std::ios::binary);
+    if (!in) throw std::runtime_error("Cannot open input file: " + path);
+
+    std::vector<unsigned char> data;
+    char ch;
+    while (in.get(ch))
+        data.push_back(static_cast<unsigned char>(ch));
+
+    if (in.bad()) throw std::runtime_error("Error while reading input file.");
+    return data;
+}
+
+static void writeFile(const std::string& path,
+                      const std::vector<unsigned char>& data) {
+    std::ofstream out(path.c_str(), std::ios::binary);
+    if (!out) throw std::runtime_error("Cannot create output file: " + path);
+
+    if (!data.empty())
+        out.write(reinterpret_cast<const char*>(&data[0]),
+                  static_cast<std::streamsize>(data.size()));
+
+    if (!out) throw std::runtime_error("Error while writing output file.");
+}
+
+static void ensureDifferentPaths(const std::string& input,
+                                 const std::string& output) {
+    if (input == output)
+        throw std::runtime_error("Input and output paths must be different.");
+}
+
+static void printStats(std::uint64_t original, std::uint64_t compressed) {
+    std::cout << "\n--- Compression statistics ---\n";
+    std::cout << "Original size:   " << original << " bytes\n";
+    std::cout << "Compressed size: " << compressed << " bytes\n";
+
+    if (original == 0) {
+        std::cout << "Space saved:     Not applicable (empty file)\n";
+        return;
+    }
+
+    double saved = (1.0 - static_cast<double>(compressed) /
+                    static_cast<double>(original)) * 100.0;
+    std::cout << std::fixed << std::setprecision(2);
+    std::cout << "Space saved:     " << saved << "%\n";
+    if (compressed >= original)
+        std::cout << "Note: This file did not become smaller; the header "
+                     "and coding overhead can exceed the savings.\n";
+}
+
+static void compressFile(const std::string& inputPath,
+                         const std::string& outputPath) {
+    ensureDifferentPaths(inputPath, outputPath);
+    std::vector<unsigned char> data = readFile(inputPath);
+
+    std::array<std::uint64_t, 256> frequencies;
+    frequencies.fill(0);
+    for (std::size_t i = 0; i < data.size(); ++i) {
+        if (frequencies[data[i]] == std::numeric_limits<std::uint64_t>::max())
+            throw std::runtime_error("Input file is too large.");
+        ++frequencies[data[i]];
+    }
+
+    HuffmanTree tree;
+    tree.build(frequencies);
+    std::array<std::string, 256> codes;
+    tree.getCodes(codes);
+
+    std::ofstream out(outputPath.c_str(), std::ios::binary);
+    if (!out) throw std::runtime_error("Cannot create compressed file: " + outputPath);
+
+    out.write("HUF2", 4);
+    writeU64(out, static_cast<std::uint64_t>(data.size()));
+
+    std::uint16_t symbolCount = 0;
+    for (int i = 0; i < 256; ++i)
+        if (frequencies[i] != 0) ++symbolCount;
+    writeU16(out, symbolCount);
+
+    // Store only symbols that occur: one symbol byte + one 64-bit frequency.
+    for (int i = 0; i < 256; ++i) {
+        if (frequencies[i] != 0) {
+            out.put(static_cast<char>(i));
+            writeU64(out, frequencies[i]);
+        }
+    }
+
+    unsigned char buffer = 0;
+    int bitsInBuffer = 0;
+
+    for (std::size_t i = 0; i < data.size(); ++i) {
+        const std::string& code = codes[data[i]];
+        for (std::size_t j = 0; j < code.size(); ++j) {
+            buffer = static_cast<unsigned char>(
+                (buffer << 1) | (code[j] == '1' ? 1 : 0));
+            ++bitsInBuffer;
+            if (bitsInBuffer == 8) {
+                out.put(static_cast<char>(buffer));
+                buffer = 0;
+                bitsInBuffer = 0;
+            }
+        }
+    }
+
+    if (bitsInBuffer != 0)
+        out.put(static_cast<char>(buffer << (8 - bitsInBuffer)));
+
+    if (!out) throw std::runtime_error("Error writing compressed data.");
+    out.close();
+
+    printStats(static_cast<std::uint64_t>(data.size()),
+               getFileSize(outputPath));
+    std::cout << "Output file: " << outputPath << "\n";
+}
+
+static void decompressFile(const std::string& inputPath,
+                           const std::string& outputPath) {
+    ensureDifferentPaths(inputPath, outputPath);
+    std::ifstream in(inputPath.c_str(), std::ios::binary);
+    if (!in) throw std::runtime_error("Cannot open compressed file: " + inputPath);
+
+    char magic[4];
+    in.read(magic, 4);
+    if (!in || magic[0] != 'H' || magic[1] != 'U' ||
+        magic[2] != 'F' || magic[3] != '2')
+        throw std::runtime_error("Invalid file format. Expected HUF2.");
+
+    std::uint64_t originalSize = readU64(in);
+    std::uint16_t symbolCount = readU16(in);
+    if (symbolCount > 256)
+        throw std::runtime_error("Invalid symbol count in compressed header.");
+
+    std::array<std::uint64_t, 256> frequencies;
+    frequencies.fill(0);
+    std::uint64_t total = 0;
+
+    for (std::uint16_t i = 0; i < symbolCount; ++i) {
+        int symbol = in.get();
+        if (symbol == EOF)
+            throw std::runtime_error("Compressed frequency table is incomplete.");
+        unsigned char ch = static_cast<unsigned char>(symbol);
+        if (frequencies[ch] != 0)
+            throw std::runtime_error("Duplicate symbol in compressed header.");
+
+        std::uint64_t frequency = readU64(in);
+        if (frequency == 0 ||
+            frequency > std::numeric_limits<std::uint64_t>::max() - total)
+            throw std::runtime_error("Invalid frequency table.");
+        frequencies[ch] = frequency;
+        total += frequency;
+    }
+
+    if (total != originalSize)
+        throw std::runtime_error("Header frequency total does not match original size.");
+    if ((originalSize == 0) != (symbolCount == 0))
+        throw std::runtime_error("Invalid empty-file header.");
+
+    HuffmanTree tree;
+    HuffmanNode* root = tree.build(frequencies);
+    std::vector<unsigned char> restored;
+
+    if (originalSize > static_cast<std::uint64_t>(restored.max_size()))
+        throw std::runtime_error("Original file is too large for this system.");
+    restored.reserve(static_cast<std::size_t>(originalSize));
+
+    if (originalSize > 0 && root->isLeaf()) {
+        restored.assign(static_cast<std::size_t>(originalSize), root->symbol);
+    } else if (originalSize > 0) {
+        HuffmanNode* current = root;
+        while (restored.size() < originalSize) {
+            int packed = in.get();
+            if (packed == EOF)
+                throw std::runtime_error("Compressed data ended before decoding completed.");
+
+            unsigned char byte = static_cast<unsigned char>(packed);
+            for (int bit = 7; bit >= 0 && restored.size() < originalSize; --bit) {
+                bool value = ((byte >> bit) & 1U) != 0;
+                current = value ? current->right : current->left;
+                if (current == NULL)
+                    throw std::runtime_error("Invalid encoded bit sequence.");
+                if (current->isLeaf()) {
+                    restored.push_back(current->symbol);
+                    current = root;
                 }
             }
         }
-
-        if (bitsInCurrentByte != 0) {
-            currentByte = static_cast<unsigned char>(
-                currentByte << (8 - bitsInCurrentByte));
-            result.bytes.push_back(currentByte);
-        }
-
-        return result;
     }
 
-    std::string decompress(const EncodedData& data) {
-        releaseTree();
-        Node* root = buildTree(data.frequencies);
+    writeFile(outputPath, restored);
+    std::cout << "\nDecompression completed successfully.\n";
+    std::cout << "Restored size: " << restored.size() << " bytes\n";
+    std::cout << "Output file: " << outputPath << "\n";
+}
 
-        if (data.originalSize == 0) return "";
-        if (root == NULL) throw std::runtime_error("Invalid encoded data.");
+static void printUsage(const char* program) {
+    std::cout << "\nHUFFMAN FILE COMPRESSION (C++11)\n"
+              << "Usage:\n"
+              << "  " << program << " compress <input-file> <output.huff>\n"
+              << "  " << program << " decompress <input.huff> <output-file>\n"
+              << "Run without arguments for the interactive menu.\n\n";
+}
 
-        if (root->isLeaf()) {
-            return std::string(data.originalSize, static_cast<char>(root->symbol));
-        }
+static void interactiveMenu() {
+    while (true) {
+        std::cout << "\n====================================\n"
+                  << "       HUFFMAN FILE COMPRESSION\n"
+                  << "====================================\n"
+                  << "1. Compress a file\n"
+                  << "2. Decompress a file\n"
+                  << "3. Exit\n"
+                  << "Choose an option: ";
 
-        std::string output;
-        output.reserve(data.originalSize);
-        Node* current = root;
+        std::string choice;
+        if (!std::getline(std::cin, choice)) return;
 
-        for (std::size_t bit = 0;
-             bit < data.bitCount && output.size() < data.originalSize; ++bit) {
-            const std::size_t byteIndex = bit / 8;
-            const int bitIndex = 7 - static_cast<int>(bit % 8);
-            bool value = ((data.bytes[byteIndex] >> bitIndex) & 1U) != 0;
-
-            current = value ? current->right : current->left;
-            if (current == NULL)
-                throw std::runtime_error("Invalid bit sequence.");
-
-            if (current->isLeaf()) {
-                output.push_back(static_cast<char>(current->symbol));
-                current = root;
+        try {
+            if (choice == "1") {
+                std::string input, output;
+                std::cout << "Enter input file path: ";
+                std::getline(std::cin, input);
+                std::cout << "Enter output compressed file path: ";
+                std::getline(std::cin, output);
+                compressFile(input, output);
+            } else if (choice == "2") {
+                std::string input, output;
+                std::cout << "Enter compressed file path: ";
+                std::getline(std::cin, input);
+                std::cout << "Enter restored output file path: ";
+                std::getline(std::cin, output);
+                decompressFile(input, output);
+            } else if (choice == "3") {
+                std::cout << "Exiting program.\n";
+                return;
+            } else {
+                std::cout << "Invalid choice. Please select 1, 2, or 3.\n";
             }
+        } catch (const std::exception& error) {
+            std::cerr << "Error: " << error.what() << "\n";
         }
-
-        if (output.size() != data.originalSize)
-            throw std::runtime_error("Compressed data is incomplete.");
-
-        return output;
     }
-};
+}
 
-int main() {
-    std::cout << "========================================\n";
-    std::cout << "       HUFFMAN TEXT COMPRESSION\n";
-    std::cout << "       
-    std::cout << "========================================\n";
-    std::cout << "Enter a line of text to compress:\n> ";
-
-    std::string input;
-    std::getline(std::cin, input);
-
-    HuffmanCompressor compressor;
-    std::array<std::string, 256> codes;
-    EncodedData compressed;
-
+int main(int argc, char* argv[]) {
     try {
-        compressed = compressor.compress(input, codes);
-        std::string restored = compressor.decompress(compressed);
-
-        std::cout << "\n--- Huffman Codes ---\n";
-        for (int i = 0; i < 256; ++i) {
-            if (!codes[i].empty()) {
-                if (i == 32)
-                    std::cout << "[space]";
-                else if (i == 9)
-                    std::cout << "[tab]";
-                else if (i >= 32 && i <= 126)
-                    std::cout << "'" << static_cast<char>(i) << "'";
-                else
-                    std::cout << "[byte " << i << "]";
-                std::cout << " : " << codes[i] << "\n";
-            }
+        if (argc == 1) {
+            interactiveMenu();
+            return 0;
         }
 
-        std::cout << "\n--- Compression Result ---\n";
-        std::cout << "Original text: " << input << "\n";
-        std::cout << "Original size: " << input.size() << " bytes\n";
-        std::cout << "Encoded data:  ";
+        if (argc != 4) {
+            printUsage(argv[0]);
+            return 1;
+        }
 
-        if (compressed.bitCount == 0) {
-            std::cout << "(empty)";
+        std::string command = argv[1];
+        if (command == "compress") {
+            compressFile(argv[2], argv[3]);
+        } else if (command == "decompress") {
+            decompressFile(argv[2], argv[3]);
         } else {
-            for (std::size_t bit = 0; bit < compressed.bitCount; ++bit) {
-                std::size_t byteIndex = bit / 8;
-                int bitIndex = 7 - static_cast<int>(bit % 8);
-                std::cout << (((compressed.bytes[byteIndex] >> bitIndex) & 1U)
-                              ? '1' : '0');
-            }
+            printUsage(argv[0]);
+            return 1;
         }
-        std::cout << "\n";
-        std::cout << "Encoded bits:  " << compressed.bitCount << "\n";
-        std::cout << "Packed bytes:  " << compressed.bytes.size() << "\n";
-
-        if (compressed.bitCount != 0) {
-            double ratio = 100.0 * static_cast<double>(compressed.bytes.size()) /
-                           static_cast<double>(input.size());
-            std::cout << std::fixed << std::setprecision(2);
-            std::cout << "Packed-data size relative to input: "
-                      << ratio << "%\n";
-        }
-
-        std::cout << "\n--- Decompression Result ---\n";
-        std::cout << "Restored text: " << restored << "\n";
-        std::cout << "Verification: "
-                  << (restored == input ? "SUCCESS - original text restored"
-                                        : "FAILED")
-                  << "\n";
-
-        std::cout << "\nNote: This online-compiler edition compresses text in memory.\n";
-        std::cout << "It demonstrates Huffman coding; it does not create a .huff file.\n";
-    }
-    catch (const std::exception& error) {
+    } catch (const std::exception& error) {
         std::cerr << "Error: " << error.what() << "\n";
         return 1;
     }
